@@ -18,6 +18,7 @@
 #define max_voltage 130
 #define max_power 900
 
+#include <EEPROM.h>
 #include <Wire.h>
 
 #include "EmonLib.h"
@@ -42,6 +43,7 @@ float power, voltage, current;
 int engine_status = 0, energy_status = 0, screen = 0, mode = 0, ignition_status = 0;
 int low_voltage_counter = 0, high_voltage_counter = 0, normal_voltage_counter = 0;
 int i = 0, timer = 0, blink = 0, last_second = 0, second = 0, minute = 0, hour = 0, day = 0;
+int engine_hour, engine_minute, engine_second;
 
 // Thermometer
 OneWire temp_pin(3);
@@ -74,6 +76,11 @@ void setup(){
   // Thermometer
   temp_bus.begin();
   temp_bus.getAddress(temp_sensor, 0);
+
+  // Engine timer
+  engine_hour = EEPROM.read(0);
+  engine_minute = EEPROM.read(1);
+  engine_second = EEPROM.read(2);
 
   init_system();
 }
@@ -118,7 +125,17 @@ void loop(){
     lcd.setCursor(0,1);
     lcd.print("   Horas do motor   ");
     lcd.setCursor(0,2);
-    lcd.print("      00:00:00      ");
+
+    lcd.print("      ");
+    if(engine_hour < 10) lcd.print("0");
+    lcd.print(engine_hour);
+    lcd.print(":");
+    if(engine_minute < 10) lcd.print("0");
+    lcd.print(engine_minute);
+    lcd.print(":");
+    if(engine_second < 10) lcd.print("0");
+    lcd.print(engine_second);
+
     break;
     case 3:
     lcd.setCursor(0,0);
@@ -352,6 +369,29 @@ void cron(){
 
     if(second % 10 == 0) {
       get_temperature();
+    }
+
+    if(engine_status == 1) {
+      engine_second++;
+      EEPROM.write(2, engine_second);
+    }
+  }
+
+  if(engine_status == 1){
+    if(engine_second >= 60){
+      engine_minute++;
+      engine_second = 0;
+
+      EEPROM.write(2, engine_second);
+      EEPROM.write(1, engine_minute);
+    }
+
+    if(engine_minute >= 60){
+      engine_hour = engine_hour + 1;
+      engine_minute = 0;
+
+      EEPROM.write(1, engine_minute);
+      EEPROM.write(0, engine_hour);
     }
   }
 
