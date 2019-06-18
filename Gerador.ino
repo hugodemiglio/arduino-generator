@@ -30,7 +30,7 @@ LiquidCrystal_I2C lcd(0x27,2,1,0,4,5,6,7,3, POSITIVE);
 #include <DallasTemperature.h>
 
 // Keypad
-int key_status, key1_status, key2_status, key3_status, key4_status;
+int key_status, last_key = 0, key1_status, key2_status, key3_status, key4_status;
 
 // Choke
 int choke_status;
@@ -41,7 +41,7 @@ float power, voltage, current;
 // System Status
 int engine_status = 0, energy_status = 0, screen = 0, mode = 0, ignition_status = 0;
 int low_voltage_counter = 0, high_voltage_counter = 0, normal_voltage_counter = 0;
-int i = 0, blink = 0, last_second = 0, second = 0, minute = 0, hour = 0, day = 0;
+int i = 0, timer = 0, blink = 0, last_second = 0, second = 0, minute = 0, hour = 0, day = 0;
 
 // Thermometer
 OneWire temp_pin(3);
@@ -85,7 +85,7 @@ void init_system(){
   get_temperature();
 
   lcd.setCursor(0,0);
-  lcd.print("Gerador de Energia");
+  lcd.print(" Gerador de Energia");
   lcd.setCursor(0,1);
   lcd.print("      HG Brasil");
   lcd.setCursor(0,3);
@@ -104,13 +104,33 @@ void loop(){
     case 0:
     engine_screen();
     break;
+    case 1:
+    lcd.setCursor(0,0);
+    lcd.print("    Temporizador    ");
+    lcd.setCursor(0,1);
+    lcd.print(" desligar motor em  ");
+    lcd.setCursor(0,3);
+    lcd.print("   +   ");
+    lcd.print(timer);
+    lcd.print(" min   -  ");
+    break;
+    case 2:
+    lcd.setCursor(0,1);
+    lcd.print("   Horas do motor   ");
+    lcd.setCursor(0,2);
+    lcd.print("      00:00:00      ");
+    break;
+    case 3:
+    lcd.setCursor(0,0);
+    lcd.print("    Dados brutos    ");
+    break;
   }
 }
 
 void engine_screen(){
   if(engine_status == 0) {
     lcd.setCursor(0,0);
-    lcd.print("  Motor desligado.  ");
+    lcd.print("   Motor desligado  ");
     lcd.setCursor(0,1);
     lcd.print("Temp. motor: ");
     lcd.print(temperature);
@@ -142,11 +162,11 @@ void engine_screen(){
 
   } else {
     lcd.setCursor(0,0);
-    lcd.print("    Motor ligado.   ");
+    lcd.print("    Motor ligado    ");
 
     lcd.setCursor(0,1);
     lcd.print(voltage);
-    lcd.print(" V - ");
+    lcd.print(" V | ");
     lcd.print(power);
     lcd.print(" W   ");
 
@@ -154,6 +174,16 @@ void engine_screen(){
     lcd.print(" ");
     lcd.print(temperature);
     lcd.print(" C ");
+
+    lcd.setCursor(11,3);
+    if(hour < 10) lcd.print("0");
+    lcd.print(hour);
+    lcd.print(":");
+    if(minute < 10) lcd.print("0");
+    lcd.print(minute);
+    lcd.print(":");
+    if(second < 10) lcd.print("0");
+    lcd.print(second);
   }
 }
 
@@ -225,6 +255,7 @@ void change_ignition(int to){
     digitalWrite(relay_ignition, HIGH);
     ignition_status = 0;
     engine_status = 0;
+    timer = 0;
     change_energy(0);
   }
 }
@@ -237,49 +268,6 @@ void change_energy(int to){
     digitalWrite(relay_energy, HIGH);
     energy_status = 0;
   }
-}
-
-void old_debug(){
-  lcd.setCursor(19,0);
-  if(!key1_status) {
-    lcd.print("1");
-  } else if(!key2_status) {
-    lcd.print("2");
-  } else if(!key3_status) {
-    lcd.print("3");
-  } else if(!key4_status) {
-    lcd.print("4");
-  } else {
-    lcd.print("0");
-  }
-
-  lcd.setCursor(17,1);
-  if(!choke_status) {
-    lcd.print("on ");
-  } else {
-    lcd.print("off");
-  }
-
-  lcd.setCursor(0,0);
-  lcd.print(voltage);
-  lcd.print(" V");
-
-  lcd.setCursor(0,1);
-  lcd.print(power);
-  lcd.print(" W");
-
-  lcd.setCursor(0,2);
-  lcd.print(current);
-  lcd.print(" A");
-
-  lcd.setCursor(0,3);
-  lcd.print(temperature);
-  lcd.print(" C");
-
-  Serial.print(voltage);
-  Serial.println(" V");
-
-  delay(1000);
 }
 
 void get_energy(){
@@ -309,6 +297,32 @@ void get_inputs(){
   } else {
     key_status = 0;
   }
+
+  if(key_status == 1 && last_key != 1) {
+    screen++;
+    lcd.clear();
+    if(screen >= 4) screen = 0;
+  }
+
+  if(key_status != last_key){
+    switch (screen) {
+      case 1:
+        if(timer < 10) i = 1;
+        else if(timer < 60) i = 5;
+        else i = 20;
+
+        if(key_status == 2) timer += i;
+        if(key_status == 3) timer -= i;
+        if(timer < 0) timer = 0;
+      break;
+    }
+  }
+
+  if(key_status == 4 && engine_status == 1){
+    change_ignition(0);
+  }
+
+  last_key = key_status;
 }
 
 void get_temperature(){
@@ -344,6 +358,11 @@ void cron(){
   if(second >= 60){
     minute++;
     second = 0;
+
+    if(engine_status == 1 && timer > 0){
+      timer--;
+      if(timer == 0) change_ignition(0);
+    }
   }
 
   if(minute >= 60){
