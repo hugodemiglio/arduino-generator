@@ -1,7 +1,22 @@
+// Pins
+
 #define key1 51
 #define key2 53
 #define key3 47
 #define key4 49
+
+#define relay_ignition 50
+#define relay_energy 48
+
+#define choke 46
+
+// Defaults
+#define temperature_limit 100
+#define choke_temperature 40
+
+#define min_voltage 40
+#define max_voltage 130
+#define max_power 900
 
 #include <Wire.h>
 
@@ -11,11 +26,28 @@ EnergyMonitor emon1;
 #include <LiquidCrystal_I2C.h>
 LiquidCrystal_I2C lcd(0x27,2,1,0,4,5,6,7,3, POSITIVE);
 
+#include <OneWire.h>
+#include <DallasTemperature.h>
+
 // Keypad
-int key1_status, key2_status, key3_status, key4_status;
+int key_status, key1_status, key2_status, key3_status, key4_status;
+
+// Choke
+int choke_status;
 
 // Energy Monitor
 float power, voltage, current;
+
+// System Status
+int engine_status = 0, energy_status = 0, screen = 0, mode = 0, ignition_status = 0;
+int low_voltage_counter = 0, high_voltage_counter = 0, normal_voltage_counter = 0;
+int i = 0, blink = 0, last_second = 0, second = 0, minute = 0, hour = 0, day = 0;
+
+// Thermometer
+OneWire temp_pin(3);
+DallasTemperature temp_bus(&temp_pin);
+DeviceAddress temp_sensor;
+float temperature;
 
 void setup(){
   Serial.begin(9600);
@@ -31,12 +63,183 @@ void setup(){
   pinMode(key2, INPUT_PULLUP);
   pinMode(key3, INPUT_PULLUP);
   pinMode(key4, INPUT_PULLUP);
+
+  // Relays
+  pinMode(relay_ignition, OUTPUT);
+  pinMode(relay_energy, OUTPUT);
+
+  // Choke
+  pinMode(choke, INPUT_PULLUP);
+
+  // Thermometer
+  temp_bus.begin();
+  temp_bus.getAddress(temp_sensor, 0);
+
+  init_system();
+}
+
+void init_system(){
+  digitalWrite(relay_ignition, HIGH);
+  digitalWrite(relay_energy, HIGH);
+
+  get_temperature();
+
+  lcd.setCursor(0,0);
+  lcd.print("Gerador de Energia");
+  lcd.setCursor(0,1);
+  lcd.print("      HG Brasil");
+  lcd.setCursor(0,3);
+  lcd.print("       v 1.0.0");
+  delay(2000);
+  lcd.clear();
 }
 
 void loop(){
-  get_energy();
-  get_keypad();
+  get_inputs();
 
+  cron();
+  engine_cron();
+
+  switch (screen) {
+    case 0:
+    engine_screen();
+    break;
+  }
+}
+
+void engine_screen(){
+  if(engine_status == 0) {
+    lcd.setCursor(0,0);
+    lcd.print("  Motor desligado.  ");
+    lcd.setCursor(0,1);
+    lcd.print("Temp. motor: ");
+    lcd.print(temperature);
+    lcd.print(" C");
+
+    if(ignition_status == 0) {
+      lcd.setCursor(0,2);
+      lcd.print("Partida n permitida ");
+
+      if(temperature > 100) {
+        lcd.setCursor(0,3);
+        lcd.print("Motor muito quente! ");
+      } else if(!choke_status && temperature < choke_temperature) {
+        lcd.setCursor(0,3);
+        lcd.print("> Puxar afogador.   ");
+      }
+    } else {
+      lcd.setCursor(0,2);
+
+      if(!choke_status && temperature < choke_temperature && blink == 1) {
+        lcd.print("   Puxar afogador!  ");
+      } else {
+        lcd.print("                    ");
+      }
+
+      lcd.setCursor(0,3);
+      lcd.print("> Aguardando partida");
+    }
+
+  } else {
+    lcd.setCursor(0,0);
+    lcd.print("    Motor ligado.   ");
+
+    lcd.setCursor(0,1);
+    lcd.print(voltage);
+    lcd.print(" V - ");
+    lcd.print(power);
+    lcd.print(" W   ");
+
+    lcd.setCursor(0,3);
+    lcd.print(" ");
+    lcd.print(temperature);
+    lcd.print(" C ");
+  }
+}
+
+void engine_cron(){
+  if(engine_status == 0) {
+
+    if(ignition_status == 0 && temperature < temperature_limit) {
+      if(temperature < choke_temperature) {
+        if(choke_status) change_ignition(1);
+      } else {
+        change_ignition(1);
+      }
+    } else {
+      if(voltage >= min_voltage) {
+        engine_status = 1;
+        clear_timers();
+        lcd.clear();
+      }
+    }
+
+  } else {
+
+    // High temperature
+    if(temperature > temperature_limit){
+      change_ignition(0);
+    }
+
+    // Low voltage
+    if(voltage <= min_voltage) {
+      if(blink == 1) low_voltage_counter++;
+
+      if(low_voltage_counter >= 5){
+        change_ignition(0);
+        low_voltage_counter = 0;
+      }
+    } else {
+      low_voltage_counter = 0;
+    }
+
+    // High voltage
+    if(voltage >= max_voltage) {
+      if(blink == 1) high_voltage_counter++;
+
+      if(high_voltage_counter >= 3){
+        change_energy(0);
+      }
+    } else {
+      high_voltage_counter = 0;
+    }
+
+    // Normal voltage
+    if(energy_status == 0 && voltage > min_voltage && voltage < max_voltage){
+      if(blink == 1) normal_voltage_counter++;
+
+      if(normal_voltage_counter >= 5){
+        change_energy(1);
+        normal_voltage_counter = 0;
+      }
+    }
+
+  }
+}
+
+void change_ignition(int to){
+  if(to == 1){
+    digitalWrite(relay_ignition, LOW);
+    ignition_status = 1;
+  } else {
+    digitalWrite(relay_ignition, HIGH);
+    ignition_status = 0;
+    engine_status = 0;
+    change_energy(0);
+  }
+}
+
+void change_energy(int to){
+  if(to == 1){
+    digitalWrite(relay_energy, LOW);
+    energy_status = 1;
+  } else {
+    digitalWrite(relay_energy, HIGH);
+    energy_status = 0;
+  }
+}
+
+void old_debug(){
   lcd.setCursor(19,0);
   if(!key1_status) {
     lcd.print("1");
@@ -48,6 +251,13 @@ void loop(){
     lcd.print("4");
   } else {
     lcd.print("0");
+  }
+
+  lcd.setCursor(17,1);
+  if(!choke_status) {
+    lcd.print("on ");
+  } else {
+    lcd.print("off");
   }
 
   lcd.setCursor(0,0);
@@ -63,7 +273,7 @@ void loop(){
   lcd.print(" A");
 
   lcd.setCursor(0,3);
-  lcd.print("0.0");
+  lcd.print(temperature);
   lcd.print(" C");
 
   Serial.print(voltage);
@@ -80,9 +290,78 @@ void get_energy(){
   current = emon1.Irms;
 }
 
-void get_keypad(){
+void get_inputs(){
   key1_status = digitalRead(key1);
   key2_status = digitalRead(key2);
   key3_status = digitalRead(key3);
   key4_status = digitalRead(key4);
+
+  choke_status = digitalRead(choke) ? 0 : 1;
+
+  if(!key1_status) {
+    key_status = 1;
+  } else if(!key2_status) {
+    key_status = 2;
+  } else if(!key3_status) {
+    key_status = 3;
+  } else if(!key4_status) {
+    key_status = 4;
+  } else {
+    key_status = 0;
+  }
+}
+
+void get_temperature(){
+  temp_bus.requestTemperatures();
+  temperature = temp_bus.getTempC(temp_sensor);
+}
+
+void clear_timers(){
+  second = 0;
+  minute = 0;
+  hour = 0;
+  day = 0;
+}
+
+void cron(){
+  int current_second = millis()/1000;
+
+  if(current_second > last_second || current_second < last_second){
+    last_second = current_second;
+    second++;
+
+    blink = blink == 1 ? 0 : 1;
+
+    if(second % 5 == 0) {
+      if(ignition_status) get_energy();
+    }
+
+    if(second % 10 == 0) {
+      get_temperature();
+    }
+  }
+
+  if(second >= 60){
+    minute++;
+    second = 0;
+  }
+
+  if(minute >= 60){
+    hour = hour + 1;
+    minute = 0;
+  }
+
+  if(hour >= 24){
+    day = day + 1;
+    hour = 0;
+  }
+
+  if(hour < 0){
+    hour = 0;
+  }
+
+  if(minute < 0){
+    minute = 0;
+  }
+
 }
