@@ -11,13 +11,15 @@
 #define choke 46
 
 // Defaults
-#define temperature_limit 100
+#define temperature_limit 110
 #define choke_temperature 40
 
-#define min_voltage 115
-#define max_voltage 125
+#define min_voltage 90
+#define max_voltage 130
 #define max_power 900
 
+
+// Libs
 #include <EEPROM.h>
 #include <Wire.h>
 
@@ -41,7 +43,8 @@ float power, voltage, current;
 
 // System Status
 int engine_status = 0, energy_status = 0, screen = 0, mode = 0, ignition_status = 0, engine_message = 0;
-int i = 0, timer = 0, blink = 0, last_second = 0, second = 0, minute = 0, hour = 0, day = 0, second_counter = 30, normal_voltage_counter = 0;
+int counter_id = 0, second_counter = 0;
+int i = 0, timer = 0, blink = 0, last_second = 0, second = 0, minute = 0, hour = 0, day = 0, normal_voltage_counter = 0;
 int engine_hour, engine_minute, engine_second;
 
 // Thermometer
@@ -148,7 +151,25 @@ void loop(){
     break;
     case 4:
     lcd.setCursor(0,0);
+    lcd.print("  Modo emergencia  ");
+    lcd.setCursor(0,2);
+    lcd.print("  Ir para manual?  ");
+    lcd.setCursor(0,4);
+    lcd.print("  SIM          NAO  ");
+    break;
+    case 5:
+    lcd.setCursor(0,0);
     lcd.print("    Dados brutos    ");
+    lcd.setCursor(0,1);
+    lcd.print(voltage);
+    lcd.print(" V | ");
+    lcd.print(power);
+    lcd.print(" W  ");
+    lcd.setCursor(0,2);
+    lcd.print(current);
+    lcd.print(" A | ");
+    lcd.print(temperature);
+    lcd.print(" C  ");
     break;
   }
 }
@@ -166,7 +187,7 @@ void engine_screen(){
       lcd.setCursor(0,2);
       lcd.print("Partida n permitida ");
 
-      if(temperature > 100) {
+      if(temperature > temperature_limit) {
         lcd.setCursor(0,3);
         lcd.print("Motor muito quente! ");
       } else if(!choke_status && temperature < choke_temperature) {
@@ -176,8 +197,8 @@ void engine_screen(){
     } else {
       lcd.setCursor(0,2);
 
-      if(!choke_status && temperature < choke_temperature && blink == 1) {
-        lcd.print("   Puxar afogador!  ");
+      if(!choke_status && temperature < choke_temperature) {
+        lcd.print(" ! Puxar afogador ! ");
       } else {
         lcd.print("                    ");
       }
@@ -192,9 +213,9 @@ void engine_screen(){
 
     lcd.setCursor(0,1);
     lcd.print(voltage);
-    lcd.print(" V");
+    lcd.print(" V   ");
 
-    lcd.setCursor((power < 100 ? 13 : 12), 1);
+    lcd.setCursor((power < 100 ? (power < 10 ? 14 : 13) : 12), 1);
     if(power > 0) lcd.print(power);
     else lcd.print("0.00");
     lcd.print(" W");
@@ -211,16 +232,19 @@ void engine_screen(){
       }
       break;
       case 1:
-      lcd.print(" > Soltar afogador");
+      lcd.print(" > Soltar afogador  ");
       break;
       case 2:
-      lcd.print("  ! Tensao baixa !");
+      lcd.print("  ! Tensao baixa !  ");
       break;
       case 3:
-      lcd.print("  ! Tensao alta !");
+      lcd.print("  ! Tensao alta !   ");
       break;
       case 4:
       lcd.print("! Temperatura alta !");
+      break;
+      case 5:
+      lcd.print("Verificando motor...");
       break;
     }
 
@@ -244,14 +268,16 @@ void engine_screen(){
 void engine_cron(){
   if(engine_status == 0) {
 
-    if(ignition_status == 0 && temperature < temperature_limit) {
-      if(temperature < choke_temperature) {
-        if(choke_status) change_ignition(1);
-      } else {
-        change_ignition(1);
+    if(ignition_status == 0) {
+      if(temperature < temperature_limit) {
+        if(temperature < choke_temperature) {
+          if(choke_status) change_ignition(1);
+        } else {
+          change_ignition(1);
+        }
       }
     } else {
-      if(voltage >= min_voltage) {
+      if(voltage >= 40) {
         engine_status = 1;
         clear_timers();
         lcd.clear();
@@ -267,48 +293,52 @@ void engine_cron(){
 
     // Engine stoped
     if(voltage <= 10) {
-      if(second_counter >= 30) second_counter = 0;
+      start_counter(5);
+      engine_message = 5;
 
-      if(second_counter >= 5){
+      if(counter_done(5, 10)){
         change_ignition(0);
-        second_counter = 30;
       }
+    } else {
+      if(engine_message == 5) engine_message = 0;
+      clear_counter(5);
     }
 
     // Low voltage
     if(voltage > 11 && voltage <= min_voltage) {
-      if(second_counter >= 30) second_counter = 0;
+      start_counter(2);
       engine_message = 2;
 
-      if(second_counter >= 5){
+      if(counter_done(2, 5)){
         change_energy(0);
-        second_counter = 30;
       }
     } else {
       if(engine_message == 2) engine_message = 0;
+      clear_counter(2);
     }
 
     // High voltage
     if(voltage >= max_voltage) {
-      if(second_counter >= 30) second_counter = 0;
+      start_counter(3);
       engine_message = 3;
 
-      if(second_counter >= 3){
+      if(counter_done(3, 5)){
         change_energy(0);
-        second_counter = 30;
       }
     } else {
       if(engine_message == 3) engine_message = 0;
+      clear_counter(3);
     }
 
     // Normal voltage
     if(energy_status == 0 && voltage > min_voltage && voltage < max_voltage){
-      if(blink == 1) normal_voltage_counter++;
+      start_counter(10);
 
-      if(normal_voltage_counter >= 5){
+      if(counter_done(10, 5)){
         change_energy(1);
-        normal_voltage_counter = 0;
       }
+    } else {
+      clear_counter(10);
     }
 
     // Temperature warning
@@ -379,7 +409,7 @@ void get_inputs(){
   if(key_status == 1 && last_key != 1) {
     screen++;
     lcd.clear();
-    if(screen >= 5) screen = 0;
+    if(screen >= 6) screen = 0;
   }
 
   if(key_status != last_key){
@@ -392,6 +422,24 @@ void get_inputs(){
         if(key_status == 2) timer += i;
         if(key_status == 3) timer -= i;
         if(timer < 0) timer = 0;
+      break;
+      case 4:
+        if(key_status == 3) screen = 0;
+
+        if(key_status == 2) {
+          digitalWrite(relay_energy, LOW);
+          digitalWrite(relay_ignition, LOW);
+
+          lcd.clear();
+          lcd.setCursor(0,1);
+          lcd.print("     ! ATENCAO ! ");
+          lcd.setCursor(0,2);
+          lcd.print("Eletronica deligada");
+
+          while(true){
+            delay(1000);
+          }
+        }
       break;
     }
   }
@@ -423,6 +471,26 @@ void clear_timers(){
   day = 0;
 }
 
+void start_counter(int id){
+  if(counter_id == 0) {
+    second_counter = 0;
+    counter_id = id;
+  }
+}
+
+int counter_done(int id, int to){
+  if(counter_id == id && second_counter >= to){
+    counter_id = 0;
+    return 1;
+  }
+
+  return 0;
+}
+
+void clear_counter(int id){
+  if(counter_id == id) counter_id = 0;
+}
+
 void cron(){
   int current_second = millis()/1000;
 
@@ -432,8 +500,8 @@ void cron(){
 
     blink = blink == 1 ? 0 : 1;
 
-    if(second_counter < 30) second_counter++;
-    Serial.println(second_counter);
+    if(second_counter < 15) second_counter++;
+    if(second_counter == 15) counter_id = 0;
 
     if(second % 5 == 0) {
       if(ignition_status) get_energy();
@@ -473,15 +541,18 @@ void cron(){
 
     if(engine_status == 1 && timer > 0){
       timer--;
-      if(timer == 0) change_ignition(0);
 
-      lcd.clear();
-      lcd.setCursor(0,1);
-      lcd.print(" Motor foi desligado");
-      lcd.setCursor(0,2);
-      lcd.print("   Motivo: timer");
-      delay(2000);
-      lcd.clear();
+      if(timer == 0) {
+        change_ignition(0);
+
+        lcd.clear();
+        lcd.setCursor(0,1);
+        lcd.print(" Motor foi desligado");
+        lcd.setCursor(0,2);
+        lcd.print("   Motivo: timer");
+        delay(2000);
+        lcd.clear();
+      }
     }
   }
 
