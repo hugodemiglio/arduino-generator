@@ -14,7 +14,7 @@
 #define temperature_limit 110
 #define choke_temperature 40
 
-#define min_voltage 90
+#define min_voltage 80
 #define max_voltage 130
 #define max_power 900
 
@@ -153,7 +153,7 @@ void loop(){
     lcd.setCursor(0,0);
     lcd.print("  Modo emergencia  ");
     lcd.setCursor(0,2);
-    lcd.print("  Ir para manual?  ");
+    lcd.print("Ir modo para manual?");
     lcd.setCursor(0,4);
     lcd.print("  SIM          NAO  ");
     break;
@@ -425,21 +425,7 @@ void get_inputs(){
       break;
       case 4:
         if(key_status == 3) screen = 0;
-
-        if(key_status == 2) {
-          digitalWrite(relay_energy, LOW);
-          digitalWrite(relay_ignition, LOW);
-
-          lcd.clear();
-          lcd.setCursor(0,1);
-          lcd.print("     ! ATENCAO ! ");
-          lcd.setCursor(0,2);
-          lcd.print("Eletronica deligada");
-
-          while(true){
-            delay(1000);
-          }
-        }
+        if(key_status == 2) manual_mode();
       break;
     }
   }
@@ -462,6 +448,24 @@ void get_inputs(){
 void get_temperature(){
   temp_bus.requestTemperatures();
   temperature = temp_bus.getTempC(temp_sensor);
+}
+
+void manual_mode(){
+  digitalWrite(relay_energy, LOW);
+  digitalWrite(relay_ignition, LOW);
+
+  lcd.clear();
+  lcd.setCursor(0,1);
+  lcd.print("     ! ATENCAO ! ");
+  lcd.setCursor(0,2);
+  lcd.print("Eletronica deligada");
+
+  delay(5000);
+  lcd.setBacklight(LOW);
+
+  while(true){
+    delay(1000);
+  }
 }
 
 void clear_timers(){
