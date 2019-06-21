@@ -458,7 +458,7 @@ void manual_mode(){
   lcd.setCursor(0,1);
   lcd.print("     ! ATENCAO ! ");
   lcd.setCursor(0,2);
-  lcd.print("Eletronica deligada");
+  lcd.print("Eletronica desligada");
 
   delay(5000);
   lcd.setBacklight(LOW);
