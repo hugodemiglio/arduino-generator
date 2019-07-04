@@ -1,3 +1,19 @@
+/*
+ * Gerenciador de geradores a gasolina com Arduino (pt_BR)
+ * 
+ * Copyright 2019 Hugo Demiglio
+ *
+ * Veja mais detalhes sobre o projeto:
+ * https://www.youtube.com/hugodemiglio
+ * 
+ * https://www.youtube.com/watch?v=XlI9G0b0AHg
+ * https://www.youtube.com/watch?v=Yk3Xn9f3uEg
+ * https://www.youtube.com/watch?v=Uj3ReuUT1XU
+ *
+ * Testado com Arduino Mega 2560 (IDE 1.8.8)
+ * Verificar abaixo as dependencias de bibliotecas
+ */
+
 // Pins
 
 #define key1 51
